@@ -1,0 +1,170 @@
+#include <QApplication>
+#include <QWidget>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QLabel>
+#include <QVBoxLayout>
+#include <QComboBox>
+#include <QCheckBox>
+#include <QProcess>
+#include <QSettings>
+#include <QIcon>
+#include <QIntValidator>
+#include <QTimer>
+
+class DartsAudio : public QWidget {
+    Q_OBJECT
+
+public:
+    DartsAudio(QWidget *parent = nullptr) : QWidget(parent) {
+        setWindowFlags(Qt::WindowStaysOnTopHint | Qt::WindowCloseButtonHint | Qt::CustomizeWindowHint);
+        setWindowTitle("Autodarts Audio Pro");
+        
+        loadSettings();
+        auto *layout = new QVBoxLayout(this);
+
+        layout->addWidget(new QLabel("Ziel-IP (Windows PC):"));
+        ipEdit = new QLineEdit(targetIp);
+        layout->addWidget(ipEdit);
+
+        layout->addWidget(new QLabel("Port:"));
+        portEdit = new QLineEdit(targetPort);
+        portEdit->setValidator(new QIntValidator(1, 65535, this));
+        layout->addWidget(portEdit);
+
+        layout->addWidget(new QLabel("Audiogerät (Wähle .monitor):"));
+        deviceBox = new QComboBox();
+        refreshDevices();
+        layout->addWidget(deviceBox);
+
+        layout->addWidget(new QLabel("Sampling Rate (Hz):"));
+        sampleBox = new QComboBox();
+        sampleBox->addItems({"44100", "48000"});
+        sampleBox->setCurrentText(targetSample);
+        layout->addWidget(sampleBox);
+
+        layout->addWidget(new QLabel("Bitrate (kbps):"));
+        bitrateBox = new QComboBox();
+        bitrateBox->addItems({"128k", "192k", "256k", "320k"});
+        bitrateBox->setCurrentText(targetBitrate);
+        layout->addWidget(bitrateBox);
+
+        autoStartCheck = new QCheckBox("Beim Programmstart sofort senden");
+        autoStartCheck->setChecked(autoStartEnabled);
+        layout->addWidget(autoStartCheck);
+
+        QIcon appIcon(":/speaker.png");
+        setWindowIcon(appIcon);
+        toggleBtn = new QPushButton(" AUDIO STARTEN");
+        toggleBtn->setIcon(appIcon);
+        toggleBtn->setCheckable(true);
+        toggleBtn->setMinimumHeight(60);
+        layout->addWidget(toggleBtn);
+
+        statusLabel = new QLabel("Bereit");
+        statusLabel->setAlignment(Qt::AlignCenter);
+        layout->addWidget(statusLabel);
+
+        connect(toggleBtn, &QPushButton::toggled, this, &DartsAudio::handleToggle);
+        setFixedSize(sizeHint());
+
+        if (autoStartEnabled) {
+            statusLabel->setText("Auto-Start aktiv...");
+            QTimer::singleShot(1500, this, [this]() {
+                if(autoStartCheck->isChecked()) toggleBtn->setChecked(true);
+            });
+        }
+    }
+
+    ~DartsAudio() { stopStream(); }
+
+public slots:
+    void handleToggle(bool checked) {
+        if (checked) startStream(); else stopStream();
+    }
+
+private:
+    QLineEdit *ipEdit, *portEdit;
+    QComboBox *deviceBox, *sampleBox, *bitrateBox;
+    QCheckBox *autoStartCheck;
+    QPushButton *toggleBtn;
+    QLabel *statusLabel;
+    QProcess *streamProcess = nullptr;
+    QString targetIp, targetPort, targetSample, targetBitrate, targetDevice;
+    bool autoStartEnabled;
+
+    void refreshDevices() {
+        QProcess p;
+        p.start("bash", QStringList() << "-c" << "pactl list short sources | awk '{print $2}'");
+        p.waitForFinished();
+        QStringList devices = QString(p.readAllStandardOutput()).split('\n', Qt::SkipEmptyParts);
+        deviceBox->clear();
+        deviceBox->addItems(devices);
+        int index = deviceBox->findText(targetDevice);
+        if (index != -1) deviceBox->setCurrentIndex(index);
+    }
+
+    void loadSettings() {
+        QSettings s("Autodarts", "AudioStream");
+        targetIp = s.value("ip", "192.168.100.222").toString();
+        targetPort = s.value("port", "4010").toString();
+        targetSample = s.value("sample", "48000").toString();
+        targetBitrate = s.value("bitrate", "320k").toString();
+        targetDevice = s.value("device", "").toString();
+        autoStartEnabled = s.value("autostart", false).toBool();
+    }
+
+    void saveSettings() {
+        QSettings s("Autodarts", "AudioStream");
+        s.setValue("ip", ipEdit->text());
+        s.setValue("port", portEdit->text());
+        s.setValue("sample", sampleBox->currentText());
+        s.setValue("bitrate", bitrateBox->currentText());
+        s.setValue("device", deviceBox->currentText());
+        s.setValue("autostart", autoStartCheck->isChecked());
+    }
+
+    void startStream() {
+        saveSettings();
+        QString dev = deviceBox->currentText();
+        QString sr = sampleBox->currentText();
+        QString br = bitrateBox->currentText();
+
+        // DER FIX: Wir nutzen 'parec', das ist extrem stabil für 16-bit PCM Streams.
+        // Es wandelt intern sauber um, egal was die Hardware (s32le) liefert.
+        QString cmd = QString("parec -d %1 --rate=%2 --format=s16le --channels=2 | "
+                              "ffmpeg -f s16le -ar %2 -ac 2 -i - -acodec mp2 -ab %3 -f mpegts udp://%4:%5?pkt_size=1316")
+                      .arg(dev, sr, br, ipEdit->text(), portEdit->text());
+
+        streamProcess = new QProcess(this);
+        streamProcess->start("bash", QStringList() << "-c" << cmd);
+        
+        toggleBtn->setText(" STOP (SENDET)");
+        toggleBtn->setStyleSheet("background-color: #cc0000; color: white; font-weight: bold;");
+        statusLabel->setText("Streaming aktiv...");
+    }
+
+    void stopStream() {
+        if (streamProcess) {
+            streamProcess->terminate();
+            if(!streamProcess->waitForFinished(500)) streamProcess->kill();
+            streamProcess->deleteLater();
+            streamProcess = nullptr;
+        }
+        QProcess::execute("pkill", QStringList() << "-9" << "ffmpeg");
+        QProcess::execute("pkill", QStringList() << "-9" << "parec");
+        toggleBtn->setText(" AUDIO STARTEN");
+        toggleBtn->setStyleSheet("");
+        statusLabel->setText("Status: Gestoppt");
+        saveSettings();
+    }
+};
+
+#include "main.moc"
+
+int main(int argc, char *argv[]) {
+    QApplication a(argc, argv);
+    DartsAudio w;
+    w.show();
+    return a.exec();
+}
