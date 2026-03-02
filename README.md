@@ -1,7 +1,7 @@
 Autodarts Remote Audio Streamer 🎯🔊
 🇩🇪 DEUTSCH
 📖 Die Geschichte (Hintergrund)
-Eigentlich ist das tool für eine nanderen Zweck entstanden aber :
+Eigentlich ist das tool für einem anderen Zweck entstanden aber :
 
 Wer Autodarts nutzt, kennt das Problem: Der PC am Dartboard (oft ein kleiner Kiosk-PC oder Raspberry Pi) ist perfekt für die Bildverarbeitung der Kameras, steht aber meistens direkt an der Scheibe – dort, wo man keine klobigen Lautsprecher haben möchte. Der "Caller"-Sound (die Ansage der Punkte) sollte aber eigentlich aus der Soundanlage am anderen Ende des Raums oder am PC des Schreibers kommen.
 Ich habe nach einer einfachen Lösung gesucht, um den Systemsound ohne Verzögerung und ohne kilometerlange Kabel quer durch den Raum zu schicken. Da vorhandene Lösungen oft zu komplex, instabil oder nur für Windows-zu-Windows gedacht waren, habe ich dieses Tool geschrieben. Es "beamt" den Sound einfach per Netzwerk an einen beliebigen anderen Rechner.
